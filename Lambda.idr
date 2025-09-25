@@ -1,13 +1,24 @@
 module Lambda
 
-import Data.List
+import Data.SortedSet
 
 data LamConst = 
     CTrue |
     CFalse |
     CCond |
-    CNat Nat |
-    CAdd
+    CInt Int |
+    CAdd |
+    CSub |
+    CMul |
+    CIsZero |
+    CPair |
+    CFst |
+    CSnd |
+    CNil |
+    CCons |
+    CNull |
+    CHd |
+    CTl
 
 data Lam =
     Var String |
@@ -34,23 +45,39 @@ t6: Lam
 t6 = App (App (App (Const CCond) (Const CTrue)) (App (App (App (Const CCond) (Const CFalse)) (Const CFalse)) (Const CTrue))) (Const CTrue)
 
 t7: Lam
-t7 = App (App (Const CAdd) (Const (CNat 2))) (Const (CNat 2))
+t7 = App (App (Const CAdd) (Const (CInt 2))) (Const (CInt 2))
 
 t8: Lam
-t8 = App (App (Const CAdd) (App (App (Const CAdd) (Const (CNat 2))) (Const (CNat 2))) ) (Const (CNat 2))
+t8 = App (App (Const CAdd) (App (App (Const CAdd) (Const (CInt 2))) (Const (CInt 2))) ) (Const (CInt 2))
 
 t9: Lam
-t9 = App (App (Const CAdd) (Const (CNat 2))) (Var "x")
+t9 = App (App (Const CAdd) (Const (CInt 2))) (Var "x")
 
 t10: Lam
-t10 = App (Abs "x" (App (App (Const CAdd) (Const (CNat 2))) (Var "x"))) (Const (CNat 2))
+t10 = App (Abs "x" (App (App (Const CAdd) (Const (CInt 2))) (Var "x"))) (Const (CInt 2))
+
+t11: Lam
+t11 = App (Const CFst) (App (App (Const CPair) (Var "x")) (Var "y"))
+
 
 Show LamConst where
     show CTrue = "true"
     show CFalse = "false"
     show CCond = "cond"
-    show (CNat n) = show n
+    show (CInt n) = if n < 0 then "(" ++ show n ++ ")" else show n
     show (CAdd) = "add"
+    show (CSub) = "sub"
+    show (CMul) = "mul"
+    show (CIsZero) = "iszero"
+    show (CPair) = "pair"
+    show (CFst) = "fst"
+    show (CSnd) = "snd"
+    show (CNil) = "nil"
+    show (CCons) = "cons"
+    show (CNull) = "null"
+    show (CHd) = "hd"
+    show (CTl) = "tl"
+    
 
 Show Lam where
     show (Var str) = str
@@ -75,35 +102,57 @@ Show Lam where
     -- CAdd
     show (App (App (Const CAdd) t1) t2) = 
         let t1s = case t1 of
-                    (Const (CNat n)) => show n
+                    (Const (CInt n)) => show n
                     _ => "(" ++ show t1 ++ ")" in
         let t2s = case t2 of
-                    (Const (CNat n)) => show n
+                    (Const (CInt n)) => show n
                     _ => "(" ++ show t2 ++ ")" in
         show (Const CAdd) ++ " " ++ t1s ++ " " ++ t2s
+
+    -- CSub
+    show (App (App (Const CSub) t1) t2) = 
+        let t1s = case t1 of
+                    (Const (CInt n)) => show n
+                    _ => "(" ++ show t1 ++ ")" in
+        let t2s = case t2 of
+                    (Const (CInt n)) => show n
+                    _ => "(" ++ show t2 ++ ")" in
+        show (Const CSub) ++ " " ++ t1s ++ " " ++ t2s
+
+    -- CMul
+    show (App (App (Const CMul) t1) t2) = 
+        let t1s = case t1 of
+                    (Const (CInt n)) => show n
+                    _ => "(" ++ show t1 ++ ")" in
+        let t2s = case t2 of
+                    (Const (CInt n)) => show n
+                    _ => "(" ++ show t2 ++ ")" in
+        show (Const CMul) ++ " " ++ t1s ++ " " ++ t2s
+
+    show (App (App (Const CPair) t1) t2) = "(" ++ show (Const CPair) ++ " " ++ show t1 ++ " " ++ show t2 ++ ")"
     
     show (App (Const c) y) = show c ++ " " ++ show y
     show (App (Var x) y) = show x ++ " " ++ show y
     show (App x y) = "(" ++ show x ++ ") " ++ show y
     show (Const c) = show c
 
-fv: Lam -> List String
-fv (Var str) = [str]
+fv: Lam -> SortedSet String
+fv (Var str) = fromList [str]
 fv (Abs str x) = delete str (fv x)
-fv (App x y) = (fv x) ++ (fv y)
-fv (Const c) = []
+fv (App x y) = (fv x) `union` (fv y)
+fv (Const c) = empty
 
 exists: Eq a => a -> List a -> Bool
 exists el [] = False
 exists el (x :: xs) = if el == x then True else exists el xs
 
 new_var: String -> Lam -> String
-new_var y u = if exists y (fv u) then new_var (y ++ "'") u else y
+new_var y u = if contains y (fv u) then new_var (y ++ "'") u else y
 
 sub: (String, Lam) -> Lam -> Lam
 sub (x, u) (Var str) = if str == x then u else Var str
 sub (x, u) (Abs y t) = if x == y then (Abs y t) else
-    if exists y (fv u) then let z = new_var y u in Abs z (sub (x, u) (sub (y, Var z) t)) 
+    if contains y (fv u) then let z = new_var y u in Abs z (sub (x, u) (sub (y, Var z) t)) 
     else Abs y (sub (x, u) t)
 sub (x, u) (App f y) = App (sub (x, u) f) (sub (x, u) y)
 sub _ (Const c) = Const c
@@ -115,12 +164,44 @@ reduce (App (App (App (Const CCond) (Const CTrue)) t1) t2) = reduce t1
 reduce (App (App (App (Const CCond) (Const CFalse)) t1) t2) = reduce t2
 reduce (App (App (Const CAdd) t1) t2) = 
     case (reduce t1) of
-        (Const (CNat x)) => 
+        (Const (CInt x)) => 
             case (reduce t2) of
-                (Const (CNat y)) => Const (CNat (x+y))
-                lam => (App (App (Const CAdd) (Const (CNat x))) lam)
+                (Const (CInt y)) => Const (CInt (x + y))
+                lam => (App (App (Const CAdd) (Const (CInt x))) lam)
         lam => (App (App (Const CAdd) lam) t2)
+reduce (App (App (Const CSub) t1) t2) = 
+    case (reduce t1) of
+        (Const (CInt x)) => 
+            case (reduce t2) of
+                (Const (CInt y)) => Const (CInt (x - y))
+                lam => (App (App (Const CAdd) (Const (CInt x))) lam)
+        lam => (App (App (Const CAdd) lam) t2)
+
+reduce (App (App (Const CMul) t1) t2) = 
+    case (reduce t1) of
+        (Const (CInt x)) => 
+            case (reduce t2) of
+                (Const (CInt y)) => Const (CInt (x * y))
+                lam => (App (App (Const CAdd) (Const (CInt x))) lam)
+        lam => (App (App (Const CAdd) lam) t2)   
+
+reduce (App (Const CIsZero) t1) = 
+    case (reduce t1) of 
+        (Const (CInt n)) => if n == 0 then Const CTrue else Const CFalse
+        lam => (App (Const CIsZero) lam)
+
+reduce (App (Const CFst) (App (App (Const CPair) e1) e2)) = reduce e1
+reduce (App (Const CSnd) (App (App (Const CPair) e1) e2)) = reduce e2
+
+reduce (App (Const CNull) (Const CNil)) = Const CTrue
+reduce (App (Const CNull) (App (App (Const CCons) e1) e2)) = Const CFalse
+
+
+reduce (App (Const CHd) (App (App (Const CCons) e1) e2)) = reduce e1
+reduce (App (Const CTl) (App (App (Const CCons) e1) e2)) = reduce e2
+reduce (App (Const CHd) (Const CNil)) = Const CNil
+reduce (App (Const CTl) (Const CNil)) = Const CNil
+
 reduce (App (Abs x t) u) = reduce (sub (x, u) t)
 reduce (App x y) = App x y
 reduce (Const c) = Const c
-
