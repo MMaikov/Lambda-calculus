@@ -204,7 +204,7 @@ reduce (App (Const CHd) (Const CNil)) = Const CNil
 reduce (App (Const CTl) (Const CNil)) = Const CNil
 
 reduce (App (Abs x t) u) = reduce (sub (x, u) t)
-reduce (App x y) = App x y
+reduce (App x y) = reduce (App (reduce x) (reduce y))
 reduce (Const c) = Const c
 
 expr: Parser Lam
@@ -222,18 +222,24 @@ expr = do
             _ <- lexeme (char ')')
             pure x
 
+        varName: Parser String
+        varName = do
+            first <- satisfy isAlpha
+            rest <- many (satisfy isAlphaNum)
+            pure (pack (first::rest))
+
         var: Parser Lam
         var = do
-            x <- some (satisfy isAlpha <|> char '\'')
-            pure (Var (pack x))
+            name <- varName
+            pure (Var name)
 
         abs: Parser Lam
         abs = do
             _ <- lexeme (char '\\' <|> char 'λ')
-            x <- lexeme (some (satisfy isAlpha))
+            params <- some (lexeme varName)
             _ <- lexeme (string "." <|> string "=>" <|> string "->")
             t <- expr
-            pure (Abs (pack x) t)
+            pure (foldr (\p => \acc => Abs (p) acc) t params)
 
         constPair2: Parser Lam
         constPair2 = do
@@ -320,3 +326,16 @@ parseAndReduce s =
     case parseExpr s of
         Nothing => Const CNil
         Just lam => reduce lam
+
+lamDefinition: Parser (String, Lam)
+lamDefinition = do
+    name <- lexeme (some (satisfy isAlpha))
+    _ <- lexeme (char '=')
+    lam <- expr
+    pure ((pack name, lam))
+
+parseLamDefinition: String -> Maybe (String, Lam)
+parseLamDefinition s = 
+    case parse lamDefinition s of
+        Right (t, _) => Just t
+        Left (_) => Nothing
