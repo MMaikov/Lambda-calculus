@@ -1,6 +1,7 @@
 module Lambda
 
 import Data.SortedSet
+import Data.String.Parser
 
 data LamConst = 
     CTrue |
@@ -205,3 +206,117 @@ reduce (App (Const CTl) (Const CNil)) = Const CNil
 reduce (App (Abs x t) u) = reduce (sub (x, u) t)
 reduce (App x y) = App x y
 reduce (Const c) = Const c
+
+expr: Parser Lam
+expr = do
+    es <- some (lexeme atom)
+    case es of
+        [] => fail "expected expression"
+        (x::xs) => pure (foldl App x xs)
+    where
+    mutual
+        parensP : Lazy (Parser a) -> Parser a
+        parensP p = do
+            _ <- lexeme (char '(')
+            x <- p
+            _ <- lexeme (char ')')
+            pure x
+
+        var: Parser Lam
+        var = do
+            x <- some (satisfy isAlpha <|> char '\'')
+            pure (Var (pack x))
+
+        abs: Parser Lam
+        abs = do
+            _ <- lexeme (char '\\' <|> char 'λ')
+            x <- lexeme (some (satisfy isAlpha))
+            _ <- lexeme (string "." <|> string "=>" <|> string "->")
+            t <- expr
+            pure (Abs (pack x) t)
+
+        constPair2: Parser Lam
+        constPair2 = do
+            _ <- char '('
+            x <- lexeme atom
+            _ <- lexeme (char ',')
+            y <- lexeme atom
+            _ <- char ')'
+            pure (App (App (Const CPair) x) y)
+
+        atom: Parser Lam
+        atom = const <|> abs <|> var <|> constPair2 <|> parensP expr
+
+        app: Parser Lam
+        app = do
+            x <- expr
+            _ <- char ' '
+            y <- expr
+            pure (App x y)
+
+        const: Parser Lam
+        const = constNum <|> constTrue <|> constFalse <|> constCond 
+                <|> constAdd <|> constSub <|> constMul <|> constIsZero
+                <|> constPair <|> constFst <|> constSnd <|> constNil
+                <|> constCons <|> constNull <|> constHd <|> constTl
+        
+        constNum: Parser Lam
+        constNum = Const . CInt . cast <$> integer
+
+        constTrue: Parser Lam
+        constTrue = Const CTrue <$ string "true"
+
+        constFalse: Parser Lam
+        constFalse = Const CFalse <$ string "false"
+
+        constCond: Parser Lam
+        constCond = Const CCond <$ string "cond"
+
+        constAdd: Parser Lam
+        constAdd = Const CAdd <$ string "add"
+
+        constSub: Parser Lam
+        constSub = Const CSub <$ string "sub"
+
+        constMul: Parser Lam
+        constMul = Const CMul <$ string "mul"
+
+        constIsZero: Parser Lam
+        constIsZero = Const CIsZero <$ string "iszero"
+
+        constPair: Parser Lam
+        constPair = Const CPair <$ string "pair"
+
+        constFst: Parser Lam
+        constFst = Const CFst <$ string "fst"
+
+        constSnd: Parser Lam
+        constSnd = Const CSnd <$ string "snd"
+
+        constNil: Parser Lam
+        constNil = Const CNil <$ string "nil"
+
+        constCons: Parser Lam
+        constCons = Const CCons <$ string "cons"
+
+        constNull: Parser Lam
+        constNull = Const CNull <$ string "null"
+
+        constHd: Parser Lam
+        constHd = Const CHd <$ string "hd"
+
+        constTl: Parser Lam
+        constTl = Const CTl <$ string "tl"
+
+parseExpr: String -> Maybe Lam
+parseExpr s = 
+    case parse expr s of
+        Right (t, _) => Just t
+        Left (_) => Nothing
+
+
+parseAndReduce: String -> Lam
+parseAndReduce s = 
+    case parseExpr s of
+        Nothing => Const CNil
+        Just lam => reduce lam
