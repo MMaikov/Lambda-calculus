@@ -27,6 +27,10 @@ data Lam =
     App Lam Lam |
     Const LamConst
 
+
+yCombinator: Lam
+yCombinator = Abs "f" (App (Abs "x" (App (Var "f") (App (Var "x") (Var "x")))) (Abs "x" (App (Var "f") (App (Var "x") (Var "x")))))
+
 t1: Lam
 t1 = (App (Abs "x" (Var "x")) (Var "y"))
 
@@ -60,6 +64,31 @@ t10 = App (Abs "x" (App (App (Const CAdd) (Const (CInt 2))) (Var "x"))) (Const (
 t11: Lam
 t11 = App (Const CFst) (App (App (Const CPair) (Var "x")) (Var "y"))
 
+Eq LamConst where
+    (==) CTrue CTrue = True
+    (==) CFalse CFalse = True
+    (==) CCond CCond = True
+    (==) (CInt i) (CInt j) = i == j
+    (==) CAdd CAdd = True
+    (==) CSub CSub = True
+    (==) CMul CMul = True
+    (==) CIsZero CIsZero = True
+    (==) CPair CPair = True
+    (==) CFst CFst = True
+    (==) CSnd CSnd = True
+    (==) CNil CNil = True
+    (==) CCons CCons = True
+    (==) CNull CNull = True
+    (==) CHd CHd = True
+    (==) CTl CTl = True
+    (==) _ _ = False
+
+Eq Lam where
+    (==) (Var str) (Var str1) = str == str1
+    (==) (Abs str x) (Abs str1 y) = str == str1 && x == y
+    (==) (App x y) (App x1 y2) = x==x1 && y==y2
+    (==) (Const x) (Const y) = x==y
+    (==) _ _ = False
 
 Show LamConst where
     show CTrue = "true"
@@ -143,10 +172,6 @@ fv (Abs str x) = delete str (fv x)
 fv (App x y) = (fv x) `union` (fv y)
 fv (Const c) = empty
 
-exists: Eq a => a -> List a -> Bool
-exists el [] = False
-exists el (x :: xs) = if el == x then True else exists el xs
-
 new_var: String -> Lam -> String
 new_var y u = if contains y (fv u) then new_var (y ++ "'") u else y
 
@@ -175,16 +200,16 @@ reduce (App (App (Const CSub) t1) t2) =
         (Const (CInt x)) => 
             case (reduce t2) of
                 (Const (CInt y)) => Const (CInt (x - y))
-                lam => (App (App (Const CAdd) (Const (CInt x))) lam)
-        lam => (App (App (Const CAdd) lam) t2)
+                lam => (App (App (Const CSub) (Const (CInt x))) lam)
+        lam => (App (App (Const CSub) lam) t2)
 
 reduce (App (App (Const CMul) t1) t2) = 
     case (reduce t1) of
         (Const (CInt x)) => 
             case (reduce t2) of
                 (Const (CInt y)) => Const (CInt (x * y))
-                lam => (App (App (Const CAdd) (Const (CInt x))) lam)
-        lam => (App (App (Const CAdd) lam) t2)   
+                lam => (App (App (Const CMul) (Const (CInt x))) lam)
+        lam => (App (App (Const CMul) lam) t2)   
 
 reduce (App (Const CIsZero) t1) = 
     case (reduce t1) of 
@@ -203,9 +228,19 @@ reduce (App (Const CTl) (App (App (Const CCons) e1) e2)) = reduce e2
 reduce (App (Const CHd) (Const CNil)) = Const CNil
 reduce (App (Const CTl) (Const CNil)) = Const CNil
 
-reduce (App (Abs x t) u) = reduce (sub (x, u) t)
-reduce (App x y) = reduce (App (reduce x) (reduce y))
+reduce (App (Abs x t) u) = (sub (x, u) t)
+reduce (App x y) =
+  let x' = reduce x in
+  let y' = reduce y in
+  case x' of
+    Abs v body => reduce (sub (v, y') body)
+    _ => App x' y'
 reduce (Const c) = Const c
+
+normalize: Lam -> Lam
+normalize t = 
+    let t' = reduce t in
+        if t == t' then t else normalize t'
 
 expr: Parser Lam
 expr = do
@@ -265,6 +300,7 @@ expr = do
                 <|> constAdd <|> constSub <|> constMul <|> constIsZero
                 <|> constPair <|> constFst <|> constSnd <|> constNil
                 <|> constCons <|> constNull <|> constHd <|> constTl
+                <|> constYCombinator
         
         constNum: Parser Lam
         constNum = Const . CInt . cast <$> integer
@@ -314,6 +350,9 @@ expr = do
         constTl: Parser Lam
         constTl = Const CTl <$ string "tl"
 
+        constYCombinator: Parser Lam
+        constYCombinator = yCombinator <$ string "Y"
+
 parseExpr: String -> Maybe Lam
 parseExpr s = 
     case parse expr s of
@@ -325,7 +364,7 @@ parseAndReduce: String -> Lam
 parseAndReduce s = 
     case parseExpr s of
         Nothing => Const CNil
-        Just lam => reduce lam
+        Just lam => normalize lam
 
 lamDefinition: Parser (String, Lam)
 lamDefinition = do
@@ -339,3 +378,23 @@ parseLamDefinition s =
     case parse lamDefinition s of
         Right (t, _) => Just t
         Left (_) => Nothing
+
+-- Example
+factLogic : Lam
+factLogic = Abs "fact" (Abs "n" (
+  App (
+    App (
+      App (Const CCond)
+          (App (Const CIsZero) (Var "n"))
+    )
+    (Const (CInt 1))
+    )
+    (App (
+      App (Const CMul) (Var "n")
+    ) (App (Var "fact") (
+      App (App (Const CSub) (Var "n")) (Const (CInt 1))
+    )))
+  ))
+
+recursiveFact: Lam
+recursiveFact = App yCombinator factLogic
