@@ -368,10 +368,13 @@ parseAndReduce s =
 
 lamDefinition: Parser (String, Lam)
 lamDefinition = do
-    name <- lexeme (some (satisfy isAlpha))
+    nameList <- lexeme (some (satisfy isAlpha))
+    let name = pack nameList
     _ <- lexeme (char '=')
     lam <- expr
-    pure ((pack name, lam))
+    case (contains name (fv lam)) of
+        True => pure (name, (App yCombinator (Abs name lam)))
+        False => pure ((name, lam))
 
 parseLamDefinition: String -> Maybe (String, Lam)
 parseLamDefinition s = 
@@ -379,22 +382,11 @@ parseLamDefinition s =
         Right (t, _) => Just t
         Left (_) => Nothing
 
--- Example
-factLogic : Lam
-factLogic = Abs "fact" (Abs "n" (
-  App (
-    App (
-      App (Const CCond)
-          (App (Const CIsZero) (Var "n"))
-    )
-    (Const (CInt 1))
-    )
-    (App (
-      App (Const CMul) (Var "n")
-    ) (App (Var "fact") (
-      App (App (Const CSub) (Var "n")) (Const (CInt 1))
-    )))
-  ))
+factStr: String
+factStr = "fact = (\\n. cond (iszero n) (1) (mul (n) (fact (sub n 1))))"
 
-recursiveFact: Lam
-recursiveFact = App yCombinator factLogic
+partial
+factorialDef: Lam
+factorialDef = case (parseLamDefinition factStr) of
+    Just lam => snd lam
+    Nothing => idris_crash "Parsing failed somehow for the factorial"
